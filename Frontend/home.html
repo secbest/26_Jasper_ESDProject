@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bookings</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/css/bootstrap.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" crossorigin="anonymous">
+    <link rel="stylesheet" href="home.css">
+</head>
+<body>
+
+<nav>
+    <a href="#" id="homeLink">Home</a>
+    <a href="#" id="profileLink">Profile</a>
+    <a href="#" id="helpLink">Help</a>
+    <select id="languageSelector" onchange="changeLanguage()" class="form-control" style="width: auto; display: inline-block;">
+        <option value="en">English</option>
+        <option value="es">Español</option>
+        <option value="fr">Français</option>
+        <!-- Add more languages as needed -->
+    </select>
+</nav>
+
+<div id="booking-banner" class="hero-image">
+    <h1 id="bookingsTitle">Your Bookings</h1>
+    <a href="#booking-table-container" id="viewBookings" class="cta-button">View Bookings</a>
+</div>
+
+<div class="action-buttons">
+    <div class="status-input-container">
+        <input type="text" id="statusInput" placeholder="Enter Status (Accepted, Rejected, Pending)">
+        <button class="btn btn-info" onclick="getBookingsByStatus()">Get By Status</button>
+    </div>
+    <div class="search-input-container" style="margin-left: 10px;">
+        <input type="text" id="searchInput" placeholder="Search by Facility Description">
+        <button class="btn btn-primary" onclick="searchBookings()">Search</button>
+    </div>
+    <div>
+        <button class="btn btn-success" onclick="openCreateModal()"><i class="fas fa-plus"></i> Create</button>
+        <button id="darkModeToggle" class="btn btn-secondary" onclick="toggleDarkMode()">Dark Mode</button>
+        <button class="btn logout-button" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Logout</button>
+    </div>
+</div>
+
+<div id="chartContainer" class="chart-container">
+    <canvas id="bookingChart"></canvas>
+</div>
+
+<div id="booking-table-container" class="table-wrapper"></div>
+
+<div class="pagination-container" id="paginationContainer"></div>
+
+<div class="export-buttons" style="text-align: center; margin-top: 20px;">
+    <button class="btn btn-primary" onclick="exportTableToCSV('bookings.csv')">Export Data as CSV</button>
+</div>
+
+<!-- Edit/Create Modal -->
+<div class="modal fade" id="editModal" tabindex="-1" role="dialog" aria-labelledby="editModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="editModalLabel">Manage Booking</h5>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="bookingForm">
+                    <input type="hidden" id="editBookingID">
+                    <div class="form-group">
+                        <label for="facilityDescription">Facility Description</label>
+                        <input type="text" class="form-control" id="facilityDescription" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bookingDateFrom">Booking Date From</label>
+                        <input type="date" class="form-control" id="bookingDateFrom" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bookingDateTo">Booking Date To</label>
+                        <input type="date" class="form-control" id="bookingDateTo" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bookedBy">Booked By</label>
+                        <input type="text" class="form-control" id="bookedBy" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="bookedStatus">Booking Status</label>
+                        <input type="text" class="form-control" id="bookedStatus" required>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" onclick="saveBooking()">Save changes</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function loadPreferences() {
+        const savedLanguage = localStorage.getItem('language') || 'en';
+        document.getElementById("languageSelector").value = savedLanguage;
+        await changeLanguage();
+
+        const savedTheme = localStorage.getItem('theme');
+        if (savedTheme === 'dark') {
+            document.body.classList.add('dark-mode');
+            document.getElementById('darkModeToggle').textContent = 'Light Mode';
+        }
+    }
+
+    async function changeLanguage() {
+        const selectedLanguage = document.getElementById("languageSelector").value;
+        localStorage.setItem('language', selectedLanguage);
+
+        try {
+            const response = await fetch(`https://localhost:44317/api/Translation/${selectedLanguage}`);
+            const translations = await response.json();
+
+            document.getElementById("homeLink").textContent = translations.home;
+            document.getElementById("profileLink").textContent = translations.profile;
+            document.getElementById("helpLink").textContent = translations.help;
+            document.getElementById("bookingsTitle").textContent = translations.bookingsTitle;
+            document.getElementById("viewBookings").textContent = translations.viewBookings;
+            document.getElementById("statusInput").placeholder = translations.getByStatus;
+            document.getElementById("searchInput").placeholder = translations.searchPlaceholder;
+            document.querySelector(".btn-success").innerHTML = `<i class="fas fa-plus"></i> ${translations.create}`;
+            document.getElementById("darkModeToggle").textContent = translations.darkMode;
+            document.querySelector(".logout-button").innerHTML = `<i class="fas fa-sign-out-alt"></i> ${translations.logout}`;
+            document.querySelector(".export-buttons .btn-primary").textContent = translations.exportCSV;
+
+            updateModalLanguage(translations);
+            updateTableHeaders(translations);
+        } catch (error) {
+            console.error("Error fetching translations:", error);
+        }
+    }
+
+    function updateModalLanguage(translations) {
+        document.querySelector("#editModalLabel").textContent = translations.manageBooking;
+        document.querySelector(".modal-footer .btn-secondary").textContent = translations.close;
+        document.querySelector(".modal-footer .btn-primary").textContent = translations.saveChanges;
+        document.querySelector("label[for='facilityDescription']").textContent = translations.facilityDescription;
+        document.querySelector("label[for='bookingDateFrom']").textContent = translations.bookingDateFrom;
+        document.querySelector("label[for='bookingDateTo']").textContent = translations.bookingDateTo;
+        document.querySelector("label[for='bookedBy']").textContent = translations.bookedBy;
+        document.querySelector("label[for='bookedStatus']").textContent = translations.bookingStatus;
+    }
+
+    function updateTableHeaders(translations) {
+        const tableHeaders = document.querySelectorAll("table thead th");
+        if (tableHeaders.length) {
+            tableHeaders[0].textContent = translations.facilityDescription;
+            tableHeaders[1].textContent = translations.bookingDateFrom;
+            tableHeaders[2].textContent = translations.bookingDateTo;
+            tableHeaders[3].textContent = translations.bookedBy;
+            tableHeaders[4].textContent = translations.bookingStatus;
+            tableHeaders[5].textContent = translations.action;
+        }
+    }
+
+    let currentBookingID = null;
+    let isCreating = false;
+    let bookingData = [];
+    let currentPage = 1;
+    const rowsPerPage = 5; // Number of rows to display per page
+
+    function toggleDarkMode() {
+        document.body.classList.toggle('dark-mode');
+        const currentMode = document.body.classList.contains('dark-mode') ? 'Light Mode' : 'Dark Mode';
+        document.getElementById('darkModeToggle').textContent = currentMode;
+        localStorage.setItem('theme', currentMode.includes('Light') ? 'dark' : 'light');
+    }
+
+    document.getElementById('editModal').addEventListener('show.bs.modal', function() {
+        const selectedLanguage = localStorage.getItem('language') || 'en';
+        changeLanguage(selectedLanguage);
+    });
+
+    window.onload = async function() {
+        await loadPreferences();
+        generateChart();
+        const searchInput = document.getElementById('searchInput');
+        searchInput.addEventListener('focus', function() {
+            searchInput.classList.add('expanded');
+        });
+
+        searchInput.addEventListener('blur', function() {
+            if (!searchInput.value.trim()) {
+                searchInput.classList.remove('expanded');
+            }
+        });
+    };
+
+    function searchBookings() {
+        const query = document.getElementById("searchInput").value.trim().toLowerCase();
+        if (!query) {
+            alert("Please enter a facility description to search.");
+            return;
+        }
+    
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", `https://localhost:44317/api/Booking/GetAll`, true);
+        xhr.setRequestHeader("Authorization", `Bearer ${sessionStorage.getItem("token")}`);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    const bookings = JSON.parse(xhr.responseText);
+                    const filteredBookings = bookings.filter(booking => 
+                        booking.facilityDescription.toLowerCase().includes(query)
+                    );
+                    generateBookingTable(filteredBookings);
+                } else {
+                    alert("Failed to search bookings: " + xhr.responseText);
+                }
+            }
+        };
+        xhr.send();
+    }
+    
+    function formatDateForDisplay(dateString) {
+        const [year, month, day] = dateString.split("-");
+        return `${day}-${month}-${year}`;
+    }
+
+    function generateBookingTable(bookingInfo) {
+        let tableHeading = `
+            <table class="table table-striped">
+                <thead class="thead-dark">
+                    <tr>
+                        <th>Facility Description</th>
+                        <th>Booking Date From</th>
+                        <th>Booking Date To</th>
+                        <th>Booked By</th>
+                        <th>Booking Status</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+        let tableInfoHTML = "";
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        const endIndex = startIndex + rowsPerPage;
+        const paginatedData = bookingInfo.slice(startIndex, endIndex);
+
+        for (let i = 0; i < paginatedData.length; i++) {
+            tableInfoHTML += `
+                <tr>
+                    <td>${paginatedData[i].facilityDescription}</td>
+                    <td>${formatDateForDisplay(paginatedData[i].bookingDateFrom.split('T')[0])}</td>
+                    <td>${formatDateForDisplay(paginatedData[i].bookingDateTo.split('T')[0])}</td>
+                    <td>${paginatedData[i].bookedBy}</td>
+                    <td>${paginatedData[i].bookedStatus}</td>
+                    <td>
+                        <button class="btn btn-warning" onclick="openEditModal(${paginatedData[i].bookingID})">Edit</button>
+                        <button class="btn btn-danger" onclick="deleteBooking(${paginatedData[i].bookingID})">Delete</button>
+                    </td>
+                </tr>`;
+        }
+        let tableEnding = `</tbody></table>`;
+        document.getElementById("booking-table-container").innerHTML = tableHeading + tableInfoHTML + tableEnding;
+
+        changeLanguage();
+        renderPagination(bookingInfo.length);
+    }
+
+    function renderPagination(totalRows) {
+        const totalPages = Math.ceil(totalRows / rowsPerPage);
+        let paginationHTML = "";
+
+        for (let i = 1; i <= totalPages; i++) {
+            paginationHTML += `<button class="${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+        }
+
+        document.getElementById("paginationContainer").innerHTML = paginationHTML;
+    }
+
+    function goToPage(pageNumber) {
+        currentPage = pageNumber;
+        generateBookingTable(bookingData);
+    }
+
+    function getBookingsByStatus() {
+        const status = document.getElementById("statusInput").value.trim();
+        if (!status) {
+            alert("Please enter a valid status.");
+            return;
+        }
+        const xhr = new XMLHttpRequest();
+        xhr.open("GET", `https://localhost:44317/api/Booking/GetByStatus/${status}`, true);
+        xhr.setRequestHeader("Authorization", `Bearer ${sessionStorage.getItem("token")}`);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    bookingData = JSON.parse(xhr.responseText);
+                    currentPage = 1;
+                    generateBookingTable(bookingData);
+                } else {
+                    alert("Failed to retrieve bookings: " + xhr.responseText);
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    function openEditModal(bookingID) {
+        isCreating = false;
+        currentBookingID = bookingID;
+        const booking = bookingData.find(b => b.bookingID === bookingID);
+        if (booking) {
+            document.getElementById('facilityDescription').value = booking.facilityDescription;
+            document.getElementById('bookingDateFrom').value = booking.bookingDateFrom.split('T')[0];
+            document.getElementById('bookingDateTo').value = booking.bookingDateTo.split('T')[0];
+            document.getElementById('bookedBy').value = booking.bookedBy;
+            document.getElementById('bookedStatus').value = booking.bookedStatus;
+            $('#editModal').modal('show');
+        }
+    }
+
+    function openCreateModal() {
+        isCreating = true;
+        document.getElementById('facilityDescription').value = '';
+        document.getElementById('bookingDateFrom').value = '';
+        document.getElementById('bookingDateTo').value = '';
+        document.getElementById('bookedBy').value = '';
+        document.getElementById('bookedStatus').value = '';
+        $('#editModal').modal('show');
+    }
+
+    function saveBooking() {
+        const bookingDetails = {
+            facilityDescription: document.getElementById('facilityDescription').value,
+            bookingDateFrom: document.getElementById('bookingDateFrom').value,
+            bookingDateTo: document.getElementById('bookingDateTo').value,
+            bookedBy: document.getElementById('bookedBy').value,
+            bookedStatus: document.getElementById('bookedStatus').value
+        };
+        const xhr = new XMLHttpRequest();
+        if (isCreating) {
+            xhr.open("POST", `https://localhost:44317/api/Booking/Post`, true);
+        } else {
+            xhr.open("PUT", `https://localhost:44317/api/Booking/Put?id=${currentBookingID}`, true);
+        }
+        xhr.setRequestHeader('Authorization', "Bearer " + sessionStorage.getItem("token"));
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = function() {
+            if (this.readyState == 4 && (this.status == 200 || this.status == 201)) {
+                alert("Booking saved successfully.");
+                $('#editModal').modal('hide');
+                window.location.reload();
+            } else if (this.readyState == 4) {
+                alert("Failed to save booking: " + xhr.responseText);
+            }
+        };
+        xhr.send(JSON.stringify(bookingDetails));
+    }
+
+    function deleteBooking(bookingID) {
+        if (confirm('Are you sure you want to delete this booking?')) {
+            const xhr = new XMLHttpRequest();
+            xhr.open("DELETE", `https://localhost:44317/api/Booking/Delete?id=${bookingID}`, true);
+            xhr.setRequestHeader('Authorization', `Bearer ${sessionStorage.getItem("token")}`);
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState === 4) {
+                    if (xhr.status === 200) {
+                        alert('Booking deleted successfully.');
+                        location.reload(); // Reload the page after successful delete
+                    } else {
+                        let errorMessage = 'Failed to delete booking. ';
+                        if (xhr.responseText) {
+                            errorMessage += `Details: ${xhr.responseText}`;
+                        } else {
+                            errorMessage += `Status: ${xhr.status}`;
+                        }
+                        alert(errorMessage);
+                        console.error('Error deleting booking:', xhr);
+                    }
+                }
+            };
+            xhr.send();
+        }
+    }
+
+    function logout() {
+        sessionStorage.removeItem('token');
+        alert("You have been logged out.");
+        window.location.href = "login.html";
+    }
+
+    function downloadCSV(csv, filename) {
+        const csvFile = new Blob([csv], { type: 'text/csv' });
+        const downloadLink = document.createElement('a');
+    
+        downloadLink.download = filename;
+        downloadLink.href = window.URL.createObjectURL(csvFile);
+        downloadLink.style.display = 'none';
+    
+        document.body.appendChild(downloadLink);
+        downloadLink.click();
+    }
+    
+    function exportTableToCSV(filename) {
+        const csv = [];
+        const rows = document.querySelectorAll("#booking-table-container table tr");
+    
+        for (let i = 0; i < rows.length; i++) {
+            const row = [], cols = rows[i].querySelectorAll("td, th");
+    
+            for (let j = 0; j < cols.length; j++) {
+                row.push(cols[j].innerText);
+            }
+    
+            csv.push(row.join(","));
+        }
+    
+        downloadCSV(csv.join("\n"), filename);
+    }
+
+    function generateChart() {
+        const ctx = document.getElementById('bookingChart').getContext('2d');
+        const data = {
+            labels: ['Accepted', 'Rejected', 'Pending'],
+            datasets: [{
+                label: 'Bookings',
+                data: [
+                    bookingData.filter(booking => booking.bookedStatus === 'Accepted').length,
+                    bookingData.filter(booking => booking.bookedStatus === 'Rejected').length,
+                    bookingData.filter(booking => booking.bookedStatus === 'Pending').length
+                ],
+                backgroundColor: ['#28a745', '#dc3545', '#ffc107']
+            }]
+        };
+    
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: data,
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: {
+                        position: 'top',
+                    }
+                }
+            }
+        });
+    }
+
+    document.getElementById('viewBookings').addEventListener('click', function(event) {
+        event.preventDefault();
+        document.querySelector(this.getAttribute('href')).scrollIntoView({
+            behavior: 'smooth'
+        });
+    });
+    
+    var controllerURL = "https://localhost:44317/api/Booking/GetAll";
+    var xhttp = new XMLHttpRequest();
+    xhttp.onreadystatechange = function() {
+        if (this.readyState == 4 && this.status == 200) {
+            bookingData = JSON.parse(xhttp.responseText);
+            currentPage = 1;
+            generateBookingTable(bookingData);
+        }
+    };
+    xhttp.open("GET", controllerURL, true);
+    xhttp.setRequestHeader("Authorization", `Bearer ${sessionStorage.getItem("token")}`);
+    xhttp.send();
+</script>
+
+<!-- Include Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+
+<!-- Include Bootstrap JS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/js/all.min.js" crossorigin="anonymous"></script>
+<script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/popper.js@1.14.7/dist/umd/popper.min.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@4.3.1/dist/js/bootstrap.min.js" crossorigin="anonymous"></script>
+
+</body>
+</html>
